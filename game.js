@@ -1,6 +1,6 @@
 /* ============================================================
-   FABLEDEVIL — a clean little rage platformer ;)
-   Canvas platformer. Every trap is perfectly planned.
+   KUBO RUN — Run. Trick. Escape. ;)
+   Canvas trap-platformer featuring the KUBO ECHO mechanic.
    ============================================================ */
 "use strict";
 
@@ -99,6 +99,14 @@ const AudioFX = (() => {
     beep: () => tone(900, 0.04, "square", 0.04),
     win: () => { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => tone(f, 0.16, "square", 0.09), i * 90)); },
     laugh: () => { [300, 260, 300, 260, 220].forEach((f, i) => setTimeout(() => tone(f, 0.09, "sawtooth", 0.06), i * 110)); },
+    echo: () => {
+      tone(580, 0.22, "sine", 0.12, -240);
+      setTimeout(() => tone(880, 0.26, "triangle", 0.10, -420), 60);
+    },
+    echoSwitch: () => {
+      tone(659, 0.14, "sine", 0.12, 80);
+      setTimeout(() => tone(1046, 0.22, "sine", 0.14, 0), 50);
+    },
     toggleMute: () => { muted = !muted; return muted; },
     isMuted: () => muted,
   };
@@ -113,6 +121,7 @@ addEventListener("keydown", (e) => {
     if (["Space", "ArrowUp", "KeyW"].includes(e.code)) jumpBuffered = 0.12;
   }
   keys[e.code] = true;
+  if ((e.code === "KeyE" || e.key === "e" || e.key === "E") && Game.state === "play") Game.triggerEcho();
   if (e.code === "KeyR" && Game.state === "play") Game.restartLevel(true);
   if (e.code === "KeyM") setMuteIcon(AudioFX.toggleMute());
   if (e.code === "KeyT") toggleTheme();
@@ -155,6 +164,40 @@ function spawnPoof(x, y) {
     particles.push({
       x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
       r: rand(3, 7), life: rand(0.3, 0.55), t: 0, color: theme.accent, grav: false,
+    });
+  }
+}
+function spawnEchoTrail(x, y) {
+  particles.push({
+    x: x + rand(-5, 5),
+    y: y + rand(-5, 5),
+    vx: rand(-20, 20),
+    vy: rand(-30, 10),
+    r: rand(2.2, 4.2),
+    life: rand(0.28, 0.5),
+    t: 0,
+    color: Math.random() < 0.6 ? "#00f0ff" : "#c76bff",
+    grav: false,
+  });
+}
+function spawnEchoPoof(x, y) {
+  for (let i = 0; i < 18; i++) {
+    const a = rand(0, Math.PI * 2), s = rand(50, 190);
+    particles.push({
+      x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      r: rand(2.5, 6), life: rand(0.35, 0.6), t: 0,
+      color: Math.random() < 0.6 ? "#00f0ff" : "#c76bff",
+      grav: false,
+    });
+  }
+}
+function spawnEchoSpark(x, y, n = 8) {
+  for (let i = 0; i < n; i++) {
+    const a = rand(-Math.PI, 0), s = rand(60, 220);
+    particles.push({
+      x: x + rand(-8, 8), y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      r: rand(1.8, 3.8), life: rand(0.25, 0.48), t: 0,
+      color: "#00f0ff", grav: true,
     });
   }
 }
@@ -926,6 +969,94 @@ class Gate {
   }
 }
 
+class EchoSwitch {
+  // Interactive switch that ONLY responds to the touch of Kubo Echo
+  constructor(x, y, key, opts = {}) {
+    this.x = x;
+    this.y = y;
+    this.w = opts.w ?? 48;
+    this.h = opts.h ?? 12;
+    this.key = key;
+    this.momentary = opts.momentary ?? true;
+    this.reset();
+  }
+  reset() {
+    this.pressed = false;
+    this.dip = 0;
+    this.t = 0;
+  }
+  update(dt, g) {
+    this.t += dt;
+    const hit = R(this.x, this.y - 12, this.w, this.h + 16);
+    // ONLY triggers when touched by active Echo entity!
+    const on = !!(g.echo && g.echo.active && aabb(g.echo, hit));
+
+    if (this.momentary) {
+      if (on && !this.pressed) {
+        AudioFX.echoSwitch();
+        spawnEchoSpark(this.x + this.w / 2, this.y, 8);
+      }
+      this.pressed = on;
+    } else if (on && !this.pressed) {
+      AudioFX.echoSwitch();
+      spawnEchoSpark(this.x + this.w / 2, this.y, 14);
+      this.pressed = true;
+    }
+
+    g.flags[this.key] = this.pressed;
+    this.dip = clamp(this.dip + (this.pressed ? 1 : -1) * dt * 9, 0, 1);
+  }
+  solids() { return []; }
+  kills() { return []; }
+  draw() {
+    const cx = this.x + this.w / 2;
+    const pulse = 0.5 + 0.5 * Math.sin(this.t * 5);
+
+    ctx.save();
+    // Base plate
+    ctx.fillStyle = theme.metal;
+    ctx.fillRect(this.x + 2, this.y + 4, this.w - 4, this.h);
+
+    // Glowing circuit base
+    ctx.strokeStyle = this.pressed ? "#00f0ff" : "rgba(0, 240, 255, 0.45)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(this.x + 4, this.y + this.h + 2);
+    ctx.lineTo(this.x + this.w - 4, this.y + this.h + 2);
+    ctx.stroke();
+
+    // Button Cap with dip & neon glow
+    const capY = this.y + this.dip * 6;
+    ctx.shadowColor = "#00f0ff";
+    ctx.shadowBlur = this.pressed ? 16 : 6 + pulse * 6;
+    ctx.fillStyle = this.pressed ? "#00f0ff" : "#0d7377";
+    roundRect(this.x, capY, this.w, 7, 3);
+    ctx.fill();
+
+    // Center emblem glyph
+    ctx.strokeStyle = this.pressed ? "#ffffff" : "#00f0ff";
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(cx - 5, capY + 3.5, 3, Math.PI * 0.5, Math.PI * 1.5, true);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx + 5, capY + 3.5, 3, Math.PI * 1.5, Math.PI * 0.5, true);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, capY + 3.5, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Text label
+    ctx.shadowBlur = 0;
+    ctx.font = `800 9px ${FONT}`;
+    ctx.textAlign = "center";
+    ctx.fillStyle = this.pressed ? "#00f0ff" : "rgba(0, 240, 255, 0.75)";
+    ctx.fillText("ECHO", cx, this.y + this.h + 12);
+
+    ctx.restore();
+  }
+}
+
 class BlinkPlatform {
   // solid platform that phases in and out on a timer.
   constructor(rect, opts = {}) {
@@ -1351,17 +1482,18 @@ const LEVELS = [
       ],
     }),
   },
-  // ---------------------------------------------------- 13 (NEW: saw)
+  // ---------------------------------------------------- 13 (NEW: Kubo Echo Awakening)
   {
-    name: "SAW IT COMING",
+    name: "ECHO AWAKENING",
     build: () => ({
       spawn: { x: 55, y: 440 },
       door: new Door([{ x: 884, y: 416 }]),
       solids: [floorSeg(0, 960), roof(30), wallL(), wallR()],
       traps: [
-        new Saw([{ x: 300, y: 444 }, { x: 640, y: 444 }], { r: 24, speed: 165 }),
-        new Saw([{ x: 520, y: 90 }, { x: 520, y: 430 }], { r: 22, speed: 185 }),
-        new Note(150, 430, "perfectly safe"),
+        new EchoSwitch(260, 470, "e13", { momentary: true }),
+        new Gate(R(500, 30, 24, 450), "e13"),
+        new Saw([{ x: 620, y: 444 }, { x: 740, y: 444 }], { r: 22, speed: 160 }),
+        new Note(160, 430, "step on switch → run to gate → press [E]"),
         new PopSpikes(820, 480, 64, R(740, 330, 16, 150), { delay: 0.04 }),
       ],
     }),
@@ -1444,19 +1576,19 @@ const LEVELS = [
       ],
     }),
   },
-  // ---------------------------------------------------- 19 (NEW: button + gate)
+  // ---------------------------------------------------- 19 (NEW: echo gate)
   {
-    name: "PRESS TO WIN",
+    name: "ECHO GATE",
     build: () => ({
       spawn: { x: 55, y: 440 },
       door: new Door([{ x: 884, y: 416 }]),
       solids: [floorSeg(0, 960), wallL(), wallR()],
       traps: [
-        new Button(330, 470, "g", { momentary: false }),
-        new Gate(R(620, 300, 28, 180), "g"),
-        new FakeDoor(720, 416, { label: "this way!" }),
+        new EchoSwitch(310, 470, "g19", { momentary: true }),
+        new Gate(R(600, 300, 28, 180), "g19"),
+        new FakeDoor(710, 416, { label: "this way!" }),
         new PopSpikes(812, 480, 66, R(740, 330, 16, 150), { delay: 0.05 }),
-        new Note(352, 440, "press to open the gate"),
+        new Note(200, 430, "echo holds the gate open"),
       ],
     }),
   },
@@ -1543,9 +1675,9 @@ const LEVELS = [
       ],
     }),
   },
-  // ---------------------------------------------------- 25 (NEW: teleporter + platform)
+  // ---------------------------------------------------- 25 (NEW: teleporter + echo)
   {
-    name: "PORTAL HOPPER",
+    name: "PORTAL ECHO",
     build: () => ({
       spawn: { x: 55, y: 440 },
       door: new Door([{ x: 884, y: 196 }]),
@@ -1553,8 +1685,10 @@ const LEVELS = [
       traps: [
         new StaticSpikes(300, 540, 340, { dir: "up", size: 46 }),
         new MovingPlatform(R(320, 452, 100, 16), { toX: 520, speed: 95, pause: 0.4 }),
-        new Teleporter(700, 432, 820, 222, { w: 30, h: 48, twoWay: false }),
-        new Note(150, 430, "ride, then warp up"),
+        new EchoSwitch(200, 470, "e25", { momentary: true }),
+        new Gate(R(840, 140, 22, 120), "e25"),
+        new Teleporter(700, 432, 800, 222, { w: 30, h: 48, twoWay: false }),
+        new Note(140, 430, "step switch, warp up, echo!"),
         new PopSpikes(806, 260, 60, R(720, 180, 16, 80), { delay: 0.05 }),
       ],
     }),
@@ -1605,10 +1739,11 @@ const LEVELS = [
       traps: [
         new FakeDoor(300, 416, { label: "100% real" }),
         new FakeDoor(520, 416, { label: "trust me" }),
+        new EchoSwitch(480, 470, "e28", { momentary: true }),
+        new Gate(R(760, 300, 24, 180), "e28"),
         new CollapseFloor(R(620, 480, 150, 60), R(560, 300, 30, 180)),
-        new Button(700, 470, "x", { momentary: false }),
         new FallBlock(R(820, 40, 70, 42), R(790, 200, 40, 280), { shakeTime: 0.05 }),
-        new Note(150, 430, "trust nobody"),
+        new Note(150, 430, "only your echo is honest"),
       ],
     }),
   },
@@ -1642,7 +1777,7 @@ const LEVELS = [
   },
   // ---------------------------------------------------- 30 (NEW: finale)
   {
-    name: "THE FINAL FABLE",
+    name: "THE FINAL ESCAPE",
     build: () => ({
       spawn: { x: 50, y: 440 },
       door: new Door(
@@ -1657,10 +1792,12 @@ const LEVELS = [
         new Spring(150, 480, { power: -1000 }),
         new MovingPlatform(R(280, 452, 100, 16), { toX: 560, speed: 100, pause: 0.35 }),
         new Saw([{ x: 470, y: 150 }, { x: 470, y: 430 }], { r: 22, speed: 190 }),
+        new EchoSwitch(200, 470, "e30", { momentary: true }),
+        new Gate(R(680, 30, 24, 450), "e30"),
         new Laser({ x: 610, y: 30, len: 418, vertical: true, period: 1.9, warn: 0.45, fire: 0.4 }),
         new PopSpikes(806, 480, 66, R(720, 330, 16, 150), { delay: 0.05 }),
         new StaticSpikes(250, 540, 450, { dir: "up", size: 44 }),
-        new Note(150, 250, "the devil's last laugh"),
+        new Note(150, 250, "kubo's final escape"),
       ],
     }),
   },
@@ -1668,15 +1805,16 @@ const LEVELS = [
 
 const DEATH_LINES = [
   "OUCH.", "LOL.", "SKILL ISSUE.", "SO CLOSE.", "AGAIN?", "PERFECTLY PLANNED.",
-  "YOU FELL FOR IT.", "THE DEVIL LAUGHS.", "CLASSIC.", "WHO PUT THAT THERE?",
-  "OOPS.", "TRY WALKING SLOWER.", "THAT ONE'S ON YOU.", "HE-HE.", "NICE ONE.",
+  "YOU FELL FOR IT.", "KUBO CHUCKLES.", "CLASSIC.", "WHO PUT THAT THERE?",
+  "OOPS.", "TRY AN ECHO!", "THAT ONE'S ON YOU.", "HE-HE.", "NICE ONE.",
+  "RUN. TRICK. ESCAPE.", "TRAPPED!",
 ];
 const ROASTS = [
-  [0, "wait... flawless?!"],
+  [0, "wait... flawless?! A true Kubo master."],
   [25, "pretty respectable, honestly."],
-  [75, "the devil enjoyed every single one."],
-  [150, "have you considered walking?"],
-  [9999, "the floor knows you personally now."],
+  [75, "Kubo enjoyed every single one of those."],
+  [150, "have you considered using your Echo?"],
+  [9999, "the traps know your name now."],
 ];
 
 // ================================================================ GAME
@@ -1697,6 +1835,10 @@ const Game = {
   wipeDir: 0,
   wipeNext: null,
   time: 0,
+  echo: null,
+  echoReady: true,
+  echoStatus: "ready", // "ready" | "replaying" | "used"
+  replayBuffer: [],
 
   shake(amt, t) { this.shakeAmt = Math.max(this.shakeAmt, amt); this.shakeT = Math.max(this.shakeT, t); },
 
@@ -1706,11 +1848,16 @@ const Game = {
     this.flags = {};
     this.level = def.build();
     this.level.name = def.name;
+    this.echo = null;
+    this.echoReady = true;
+    this.echoStatus = "ready";
+    this.replayBuffer = [];
     this.spawnPlayer();
     stains = [];
     particles.length = 0;
     document.getElementById("hud-levelname").textContent = def.name;
     document.getElementById("hud-levelnum").textContent = i + 1;
+    updateEchoHud();
   },
 
   spawnPlayer() {
@@ -1721,12 +1868,54 @@ const Game = {
       grounded: false, coyote: 0, face: 1,
       squash: 0, jumping: false,
     };
+    this.echo = null;
+    this.echoReady = true;
+    this.echoStatus = "ready";
+    this.replayBuffer = [];
+    updateEchoHud();
   },
 
   restartLevel(manual = false) {
     if (manual) { this.deaths++; saveProgress(); updateDeathHud(); }
+    this.echo = null;
+    this.echoReady = true;
+    this.echoStatus = "ready";
+    this.replayBuffer = [];
     this.loadLevel(this.levelIndex);
     this.state = "play";
+    updateEchoHud();
+  },
+
+  triggerEcho() {
+    if (this.state !== "play" || !this.echoReady) return;
+    if (!this.player || this.replayBuffer.length < 2) return;
+    this.echoReady = false;
+    this.echoStatus = "replaying";
+    updateEchoHud();
+
+    const raw = this.replayBuffer.map(f => ({ ...f }));
+    const t0 = raw[0].t;
+    const frames = raw.map(f => ({ ...f, relT: f.t - t0 }));
+    const duration = frames[frames.length - 1].relT;
+    this.echo = {
+      active: true,
+      frames,
+      duration: Math.max(0.4, duration),
+      curT: 0,
+      x: frames[0].x,
+      y: frames[0].y,
+      w: this.player.w,
+      h: this.player.h,
+      vx: frames[0].vx,
+      vy: frames[0].vy,
+      face: frames[0].face,
+      squash: frames[0].squash,
+      grounded: frames[0].grounded,
+      jumping: frames[0].jumping,
+      history: [],
+    };
+    AudioFX.echo();
+    spawnEchoPoof(this.echo.x + this.player.w / 2, this.echo.y + this.player.h / 2);
   },
 
   die(x, y) {
@@ -1734,6 +1923,9 @@ const Game = {
     this.deaths++;
     saveProgress();
     updateDeathHud();
+    if (this.echo) this.echo.active = false;
+    this.echoStatus = "used";
+    updateEchoHud();
     AudioFX.death();
     spawnBlood(x, y);
     addStain(x, Math.min(y + 20, 478));
@@ -1746,9 +1938,13 @@ const Game = {
   winLevel() {
     this.state = "win";
     this.winT = 0;
+    if (this.echo) this.echo.active = false;
+    this.echoStatus = "used";
+    updateEchoHud();
     AudioFX.win();
     const done = getDone();
     done[this.levelIndex] = true;
+    localStorage.setItem("kr_done", JSON.stringify(done));
     localStorage.setItem("fd_done", JSON.stringify(done));
   },
 
@@ -1803,8 +1999,68 @@ const Game = {
     const p = this.player;
     this.invertControls = false;
 
+    // Update Echo if active
+    if (this.echo && this.echo.active) {
+      this.echo.curT += dt;
+      if (this.echo.curT >= this.echo.duration) {
+        this.echo.active = false;
+        this.echoStatus = "used";
+        updateEchoHud();
+        spawnEchoPoof(this.echo.x + this.echo.w / 2, this.echo.y + this.echo.h / 2);
+      } else {
+        const frames = this.echo.frames;
+        const curT = this.echo.curT;
+        let i = 0;
+        while (i < frames.length - 1 && frames[i + 1].relT <= curT) i++;
+        const f0 = frames[i];
+        const f1 = frames[Math.min(i + 1, frames.length - 1)];
+        const span = Math.max(0.0001, f1.relT - f0.relT);
+        const alpha = clamp((curT - f0.relT) / span, 0, 1);
+
+        this.echo.x = lerp(f0.x, f1.x, alpha);
+        this.echo.y = lerp(f0.y, f1.y, alpha);
+        this.echo.vx = lerp(f0.vx, f1.vx, alpha);
+        this.echo.vy = lerp(f0.vy, f1.vy, alpha);
+        this.echo.face = f1.face;
+        this.echo.squash = lerp(f0.squash, f1.squash, alpha);
+        this.echo.grounded = f1.grounded;
+        this.echo.jumping = f1.jumping;
+
+        this.echo.history.push({
+          x: this.echo.x,
+          y: this.echo.y,
+          face: this.echo.face,
+          squash: this.echo.squash,
+          grounded: this.echo.grounded,
+          vy: this.echo.vy,
+        });
+        if (this.echo.history.length > 8) this.echo.history.shift();
+
+        if (Math.random() < 0.35) {
+          spawnEchoTrail(this.echo.x + this.echo.w / 2, this.echo.y + this.echo.h / 2);
+        }
+      }
+    }
+
     for (const t of this.level.traps) t.update(dt, this);
     this.level.door.update(dt, this);
+
+    // Record player state into buffer
+    this.replayBuffer.push({
+      t: this.time,
+      x: p.x,
+      y: p.y,
+      vx: p.vx,
+      vy: p.vy,
+      face: p.face,
+      squash: p.squash,
+      grounded: p.grounded,
+      jumping: p.jumping,
+    });
+    const cutoff = this.time - 3.2;
+    while (this.replayBuffer.length > 2 && this.replayBuffer[0].t < cutoff) {
+      this.replayBuffer.shift();
+    }
 
     let dir = 0;
     if (heldLeft()) dir -= 1;
@@ -1881,6 +2137,9 @@ const Game = {
       this.deaths++;
       saveProgress();
       updateDeathHud();
+      if (this.echo) this.echo.active = false;
+      this.echoStatus = "used";
+      updateEchoHud();
       AudioFX.death();
       this.state = "dead";
       this.deathT = 0;
@@ -1931,6 +2190,7 @@ const Game = {
 
       for (const t of this.level.traps) t.draw();
 
+      if (this.echo && this.echo.active) this.drawEcho();
       if (this.state === "play" || this.state === "win" || this.state === "betweenLevels") this.drawPlayer();
 
       drawParticles();
@@ -1974,6 +2234,90 @@ const Game = {
       ctx.arc(W / 2, H / 2, Math.max(r, 0), 0, Math.PI * 2, true);
       ctx.fill();
     }
+  },
+
+  drawEcho() {
+    const e = this.echo;
+    if (!e || !e.active) return;
+
+    // Draw ghost trail silhouettes from recent history
+    if (e.history && e.history.length > 2) {
+      for (let idx = 0; idx < e.history.length - 2; idx += 3) {
+        const h = e.history[idx];
+        const alpha = 0.14 + (idx / e.history.length) * 0.18;
+        const cx = h.x + e.w / 2, by = h.y + e.h;
+        const sY = h.squash > 0 ? 1 - h.squash * 2.2 : 1;
+        const strY = !h.grounded ? clamp(1 + Math.abs(h.vy) / 2600, 1, 1.18) : sY;
+        const sx = 1 / strY;
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.translate(cx, by);
+        ctx.scale(sx, strY);
+        ctx.fillStyle = "#c76bff";
+        ctx.shadowColor = "#c76bff";
+        ctx.shadowBlur = 8;
+        roundRect(-e.w / 2, -e.h, e.w, e.h, 7);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // Draw primary Echo entity
+    const squashY = e.squash > 0 ? 1 - e.squash * 2.2 : 1;
+    const stretchY = !e.grounded ? clamp(1 + Math.abs(e.vy) / 2600, 1, 1.18) : squashY;
+    const sx = 1 / stretchY;
+    const cx = e.x + e.w / 2, by = e.y + e.h;
+
+    // Glowing ethereal ground shadow
+    if (e.grounded) {
+      ctx.save();
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = "#00f0ff";
+      ctx.shadowColor = "#00f0ff";
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.ellipse(cx, by + 2, e.w * 0.65, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.globalAlpha = 0.65;
+    ctx.translate(cx, by);
+    ctx.scale(sx, stretchY);
+
+    // Glowing cyan aura
+    ctx.shadowColor = "#00f0ff";
+    ctx.shadowBlur = 14;
+
+    // Semi-transparent luminous body
+    ctx.fillStyle = "rgba(0, 240, 255, 0.75)";
+    roundRect(-e.w / 2, -e.h, e.w, e.h, 7);
+    ctx.fill();
+
+    // Body inner energy accent
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+    ctx.lineWidth = 1.2;
+    roundRect(-e.w / 2 + 2, -e.h + 2, e.w - 4, e.h - 4, 5);
+    ctx.stroke();
+
+    // Eyes with glowing gaze
+    const lookX = e.face * 3;
+    const lookY = clamp(e.vy / 700, -2.5, 2.5);
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.ellipse(-5 + lookX, -e.h + 11, 4.4, 5.2, 0, 0, Math.PI * 2);
+    ctx.ellipse(6 + lookX, -e.h + 11, 4.4, 5.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#00f0ff";
+    ctx.beginPath();
+    ctx.arc(-5 + lookX + e.face * 1.4, -e.h + 11 + lookY, 2, 0, Math.PI * 2);
+    ctx.arc(6 + lookX + e.face * 1.4, -e.h + 11 + lookY, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
   },
 
   drawPlayer() {
@@ -2035,21 +2379,53 @@ function roundRect(x, y, w, h, r) {
 
 // ---------------------------------------------------------------- progress / DOM
 function getDone() {
-  try { return JSON.parse(localStorage.getItem("fd_done")) || {}; } catch { return {}; }
+  try {
+    return JSON.parse(localStorage.getItem("kr_done")) || JSON.parse(localStorage.getItem("fd_done")) || {};
+  } catch { return {}; }
 }
-function saveProgress() { localStorage.setItem("fd_deaths", Game.deaths); }
+function saveProgress() {
+  localStorage.setItem("kr_deaths", Game.deaths);
+  localStorage.setItem("fd_deaths", Game.deaths);
+}
 function loadProgress() {
-  let d = localStorage.getItem("fd_deaths");
-  if (d === null) d = localStorage.getItem("ld_deaths"); // migrate from Level Devil
+  let d = localStorage.getItem("kr_deaths");
+  if (d === null) d = localStorage.getItem("fd_deaths");
+  if (d === null) d = localStorage.getItem("ld_deaths"); // migrate from legacy
   Game.deaths = parseInt(d) || 0;
-  if (!localStorage.getItem("fd_done")) {
-    const old = localStorage.getItem("ld_done");
-    if (old) localStorage.setItem("fd_done", old);
+  if (!localStorage.getItem("kr_done")) {
+    const old = localStorage.getItem("fd_done") || localStorage.getItem("ld_done");
+    if (old) {
+      localStorage.setItem("kr_done", old);
+      localStorage.setItem("fd_done", old);
+    }
   }
 }
 function updateDeathHud() {
-  document.getElementById("hud-deaths").textContent = Game.deaths;
-  document.getElementById("menu-deaths").textContent = Game.deaths;
+  const hd = document.getElementById("hud-deaths");
+  if (hd) hd.textContent = Game.deaths;
+  const md = document.getElementById("menu-deaths");
+  if (md) md.textContent = Game.deaths;
+}
+
+function updateEchoHud() {
+  const el = document.getElementById("hud-echo");
+  const tc = document.getElementById("tc-echo");
+  const status = Game.echoStatus || (Game.echoReady ? "ready" : "used");
+
+  if (el) {
+    el.className = "echo-pill " + status;
+    if (status === "ready") {
+      el.innerHTML = "ECHO &bull; READY";
+    } else if (status === "replaying") {
+      el.innerHTML = "ECHO &bull; REPLAYING";
+    } else {
+      el.innerHTML = "ECHO &bull; USED";
+    }
+  }
+
+  if (tc) {
+    tc.className = "tc-btn tc-echo " + status;
+  }
 }
 
 const menuEl = document.getElementById("menu");
@@ -2100,6 +2476,7 @@ function wireTopbar() {
 // ---------------------------------------------------------------- touch controls
 function bindHold(id, on, off) {
   const el = document.getElementById(id);
+  if (!el) return;
   const press = (e) => { e.preventDefault(); el.classList.add("held"); AudioFX.init(); on(); };
   const release = (e) => { e.preventDefault(); el.classList.remove("held"); off(); };
   el.addEventListener("pointerdown", press);
@@ -2114,17 +2491,38 @@ bindHold("tc-jump",
   () => { touch.jump = true; jumpBuffered = 0.12; },
   () => (touch.jump = false)
 );
-document.getElementById("tc-restart").addEventListener("pointerdown", (e) => {
-  e.preventDefault();
-  if (Game.state === "play") Game.restartLevel(true);
-});
+
+const tcRestart = document.getElementById("tc-restart");
+if (tcRestart) {
+  tcRestart.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    if (Game.state === "play") Game.restartLevel(true);
+  });
+}
+
+const tcEcho = document.getElementById("tc-echo");
+if (tcEcho) {
+  tcEcho.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    if (Game.state === "play") Game.triggerEcho();
+  });
+}
+
+const hudEcho = document.getElementById("hud-echo");
+if (hudEcho) {
+  hudEcho.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    if (Game.state === "play") Game.triggerEcho();
+  });
+}
 
 function setTouchControlsVisible(v) {
-  touchEl.classList.toggle("hidden", !(v && IS_TOUCH));
+  if (touchEl) touchEl.classList.toggle("hidden", !(v && IS_TOUCH));
 }
 
 function buildLevelGrid() {
   const grid = document.getElementById("level-grid");
+  if (!grid) return;
   grid.innerHTML = "";
   const done = getDone();
   let unlockedUpTo = 0;
@@ -2150,11 +2548,13 @@ function startGame(i) {
   Game.state = "play";
   Game.wipe = 1;
   Game.wipeDir = -1;
+  updateEchoHud();
 }
 
 function showMenu() {
   buildLevelGrid();
   updateDeathHud();
+  updateEchoHud();
   menuEl.classList.remove("hidden");
   endEl.classList.add("hidden");
   hudEl.classList.add("hidden");
@@ -2186,6 +2586,7 @@ function fit() {
   cv.style.width = cw + "px";
   cv.style.height = ch + "px";
   for (const el of [menuEl, hudEl, endEl]) {
+    if (!el) continue;
     el.style.width = cw + "px";
     el.style.height = el === hudEl ? "auto" : ch + "px";
     el.style.left = `calc(50% - ${cw / 2}px)`;
@@ -2201,7 +2602,7 @@ if (window.visualViewport) window.visualViewport.addEventListener("resize", fit)
 // ---------------------------------------------------------------- boot
 (function initTheme() {
   let saved = null;
-  try { saved = localStorage.getItem("fd_theme"); } catch {}
+  try { saved = localStorage.getItem("kr_theme") || localStorage.getItem("fd_theme"); } catch {}
   if (!saved) saved = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
   applyTheme(saved, false);
 })();

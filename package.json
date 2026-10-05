@@ -1,23 +1,20 @@
 {
-  "name": "fabledevil",
-  "version": "2.0.0",
-  "description": "FableDevil — a clean little browser rage-platformer with 30 levels, dark/light themes, and obvious ragebait.",
+  "name": "kuborun",
+  "version": "1.0.0",
+  "description": "KUBO RUN — Run. Trick. Escape. A fast-paced trap platformer featuring the signature KUBO ECHO mechanic.",
   "main": "game.js",
   "scripts": {
+    "start": "serve . -l 3000",
+    "dev": "serve . -l 3000",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Leonxlnx/level-devil.git"
-  },
-  "keywords": [],
+  "keywords": ["game", "platformer", "rage-game", "kubo-run", "canvas-game"],
   "author": "",
   "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/Leonxlnx/level-devil/issues"
-  },
-  "homepage": "https://github.com/Leonxlnx/level-devil#readme",
   "dependencies": {
     "@vercel/analytics": "^2.0.1"
+  },
+  "devDependencies": {
+    "serve": "^14.2.6"
   }
 }
