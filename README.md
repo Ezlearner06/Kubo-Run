@@ -25,7 +25,7 @@ Then visit `http://localhost:3000` (or `http://localhost:8080`).
 |---|---|
 | **← → / A D** | Move left / right |
 | **↑ / W / Space** | Jump (variable height + coyote time) |
-| **E** | **KUBO ECHO** (record & replay your recent ghost path) |
+| **E** | **KUBO ECHO** (send a forward scout ahead to identify traps & trigger switches) |
 | **R** | Restart level |
 | **M** | Mute / unmute audio |
 | **T** | Toggle dark / light theme |
@@ -37,16 +37,17 @@ On mobile and touch devices, the game automatically presents responsive, translu
 
 Activate **KUBO ECHO** once per level by pressing **E** (or tapping the on-screen **ECHO** button):
 
-1. **Replay Buffer**: The game continuously logs your recent movement window (last ~3 seconds).
-2. **Ghost Projection**: When activated, a luminous, translucent Kubo Echo spawns at your past location and faithfully replays your actions.
-3. **Echo Switches**: Special holographic **Echo Switches** only respond to the touch of your Echo.
-4. **Puzzle Solving**: Walk across an Echo Switch, reposition yourself by the gate, press **E**, and let your Echo hold the switch while you sprint through the open gate!
+1. **Forward Scout Projection**: When activated, a luminous, translucent Kubo Echo spawns at your current position and automatically sprints forward in your facing direction.
+2. **Autonomous Navigation**: The Echo runs across terrain, smart-jumps across pits, leaps over obstacles, and rides conveyor belts and moving platforms.
+3. **Trap Identification & Sacrifice**: Hidden traps (concealed pop spikes, collapsing floors, falling blocks, crushers, and fake doors) trigger when the Echo touches them! If hit by lethal hazards, the Echo sacrifices itself in a burst of cyan sparks—safely revealing the trap while keeping you alive!
+4. **Echo Switches**: Special holographic **Echo Switches** only respond to the touch of your Echo, holding gates open so you can safely pass through!
 
 ### Echo Rules
-- **One use per level**: Indicated by the `ECHO ● READY` / `ECHO ● USED` status badge.
+- **One use per level**: Indicated by the `ECHO ● READY` / `ECHO ● SCOUTING` / `ECHO ● USED` status badge.
+- **Directional**: Sprints in whichever direction your player is currently facing (left or right).
 - **Purely local**: Operates smoothly within solo play with zero backend requirements.
 - **Resets on retry**: Death or level restarts cleanly reset your Echo ability.
-- **Safety**: Echo cannot steal exit gates or prematurely end levels—it exists to solve timing and cooperative switch puzzles.
+- **Safety**: Echo cannot steal exit doors or prematurely end levels—it exists to scout danger, trigger traps, and unlock gates.
 
 ## Features
 

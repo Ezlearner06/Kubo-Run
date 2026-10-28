@@ -241,7 +241,8 @@ class CollapseFloor {
   }
   reset() { this.state = "idle"; this.t = 0; this.dy = 0; this.vy = 0; }
   update(dt, g) {
-    if (this.state === "idle" && aabb(g.player, this.trigger)) {
+    const triggered = aabb(g.player, this.trigger) || (g.echo && g.echo.active && aabb(g.echo, this.trigger));
+    if (this.state === "idle" && triggered) {
       this.state = "wait"; this.t = 0;
     } else if (this.state === "wait") {
       this.t += dt;
@@ -291,7 +292,8 @@ class PopSpikes {
   reset() { this.out = 0; this.state = this.trigger ? "idle" : "cycle"; this.t = -this.delay; this.ct = this.phase; }
   update(dt, g) {
     if (this.state === "idle") {
-      if (aabb(g.player, this.trigger)) { this.state = "popping"; this.t = -this.delay; }
+      const triggered = aabb(g.player, this.trigger) || (g.echo && g.echo.active && aabb(g.echo, this.trigger));
+      if (triggered) { this.state = "popping"; this.t = -this.delay; }
     } else if (this.state === "popping") {
       this.t += dt;
       if (this.t >= 0) {
@@ -349,7 +351,8 @@ class FallBlock {
   }
   reset() { this.rect = { ...this.home }; this.state = "idle"; this.t = 0; this.vy = 0; }
   update(dt, g) {
-    if (this.state === "idle" && aabb(g.player, this.trigger)) {
+    const triggered = aabb(g.player, this.trigger) || (g.echo && g.echo.active && aabb(g.echo, this.trigger));
+    if (this.state === "idle" && triggered) {
       this.state = "shake"; this.t = 0; AudioFX.rumble();
     } else if (this.state === "shake") {
       this.t += dt;
@@ -406,7 +409,8 @@ class Crusher {
   update(dt, g) {
     const maxY = this.floorY - this.headH;
     if (this.state === "armed") {
-      if (aabb(g.player, this.trigger)) { this.state = "slam"; }
+      const triggered = aabb(g.player, this.trigger) || (g.echo && g.echo.active && aabb(g.echo, this.trigger));
+      if (triggered) { this.state = "slam"; }
     } else if (this.state === "waiting") {
       this.t += dt;
       if (this.t >= this.period) { this.t = 0; this.state = "slam"; }
@@ -470,10 +474,13 @@ class CrumblePlatform {
   update(dt, g) {
     if (this.state === "idle") {
       const p = g.player;
-      const standing = p.grounded &&
+      const pStanding = p.grounded &&
         Math.abs(p.y + p.h - this.rect.y) < 3 &&
         p.x + p.w > this.rect.x && p.x < this.rect.x + this.rect.w;
-      if (standing) { this.state = "shaking"; this.t = 0; AudioFX.rumble(); }
+      const eStanding = g.echo && g.echo.active && g.echo.grounded &&
+        Math.abs(g.echo.y + g.echo.h - this.rect.y) < 3 &&
+        g.echo.x + g.echo.w > this.rect.x && g.echo.x < this.rect.x + this.rect.w;
+      if (pStanding || eStanding) { this.state = "shaking"; this.t = 0; AudioFX.rumble(); }
     } else if (this.state === "shaking") {
       this.t += dt;
       if (this.t >= this.delay) this.state = "fall";
@@ -509,9 +516,11 @@ class SlidingHole {
   }
   reset() { this.gx = this.startGap; this.active = !this.trigger; }
   update(dt, g) {
-    if (!this.active && this.trigger && aabb(g.player, this.trigger)) { this.active = true; AudioFX.rumble(); }
+    const triggered = aabb(g.player, this.trigger) || (g.echo && g.echo.active && aabb(g.echo, this.trigger));
+    if (!this.active && this.trigger && triggered) { this.active = true; AudioFX.rumble(); }
     if (!this.active) return;
-    const target = clamp(g.player.x + g.player.w / 2, this.x0 + this.gapW / 2 + 4, this.x1 - this.gapW / 2 - 4);
+    const targetEntity = (g.echo && g.echo.active) ? g.echo : g.player;
+    const target = clamp(targetEntity.x + targetEntity.w / 2, this.x0 + this.gapW / 2 + 4, this.x1 - this.gapW / 2 - 4);
     const d = target - this.gx;
     const step = clamp(d, -this.speed * dt, this.speed * dt);
     this.gx += step;
@@ -635,6 +644,13 @@ class MovingPlatform {
       pl.x + pl.w > prevx + 2 && pl.x < prevx + this.w - 2 &&
       Math.abs((pl.y + pl.h) - prevy) <= 8;
     if (onTop) { pl.x += this.dx; pl.y += this.dy; }
+    if (g.echo && g.echo.active) {
+      const ec = g.echo;
+      const ecOnTop = ec.vy >= -1 &&
+        ec.x + ec.w > prevx + 2 && ec.x < prevx + this.w - 2 &&
+        Math.abs((ec.y + ec.h) - prevy) <= 8;
+      if (ecOnTop) { ec.x += this.dx; ec.y += this.dy; }
+    }
   }
   solids() { return [R(this.px, this.py, this.w, this.h)]; }
   kills() { return []; }
@@ -662,6 +678,12 @@ class Conveyor {
     const standing = p.grounded && Math.abs((p.y + p.h) - r.y) < 4 &&
       p.x + p.w > r.x && p.x < r.x + r.w;
     if (standing) p.x += this.dir * this.force * dt;
+    if (g.echo && g.echo.active) {
+      const ec = g.echo;
+      const ecStanding = ec.grounded && Math.abs((ec.y + ec.h) - r.y) < 4 &&
+        ec.x + ec.w > r.x && ec.x < r.x + r.w;
+      if (ecStanding) ec.x += this.dir * this.force * dt;
+    }
   }
   solids() { return [this.rect]; }
   kills() { return []; }
@@ -696,16 +718,26 @@ class Spring {
   reset() { this.c = 0; }
   update(dt, g) {
     this.c = Math.max(0, this.c - dt * 5);
-    const p = g.player;
-    const overX = p.x + p.w > this.x + 3 && p.x < this.x + this.w - 3;
-    const bottom = p.y + p.h;
-    if (overX && p.vy >= 0 && bottom >= this.y - 6 && bottom <= this.y + 40) {
-      p.y = this.y - p.h;
-      p.vy = this.power;
-      p.grounded = false;
+    const checkBounce = (ent) => {
+      if (!ent) return false;
+      const overX = ent.x + ent.w > this.x + 3 && ent.x < this.x + this.w - 3;
+      const bottom = ent.y + ent.h;
+      if (overX && ent.vy >= 0 && bottom >= this.y - 6 && bottom <= this.y + 40) {
+        ent.y = this.y - ent.h;
+        ent.vy = this.power;
+        ent.grounded = false;
+        return true;
+      }
+      return false;
+    };
+    if (checkBounce(g.player)) {
       this.c = 1;
       AudioFX.bounce();
       spawnDust(this.x + this.w / 2, this.y, 6);
+    } else if (g.echo && g.echo.active && checkBounce(g.echo)) {
+      this.c = 1;
+      AudioFX.bounce();
+      spawnEchoSpark(this.x + this.w / 2, this.y, 6);
     }
   }
   solids() { return []; }
@@ -871,17 +903,23 @@ class Teleporter {
     this.cool = Math.max(0, this.cool - dt);
     if (this.cool > 0) return;
     const p = g.player;
-    const warp = (from, to) => {
-      spawnPoof(from.x + from.w / 2, from.y + from.h / 2);
-      p.x = to.x + to.w / 2 - p.w / 2;
-      p.y = to.y + to.h - p.h;
-      p.vx = 0;
+    const warp = (ent, from, to, isEcho = false) => {
+      if (isEcho) spawnEchoPoof(from.x + from.w / 2, from.y + from.h / 2);
+      else spawnPoof(from.x + from.w / 2, from.y + from.h / 2);
+      ent.x = to.x + to.w / 2 - ent.w / 2;
+      ent.y = to.y + to.h - ent.h;
+      ent.vx = isEcho ? ent.face * 265 : 0;
       this.cool = 0.45;
       AudioFX.poof();
-      spawnPoof(to.x + to.w / 2, to.y + to.h / 2);
+      if (isEcho) spawnEchoPoof(to.x + to.w / 2, to.y + to.h / 2);
+      else spawnPoof(to.x + to.w / 2, to.y + to.h / 2);
     };
-    if (aabb(p, this.a)) warp(this.a, this.b);
-    else if (this.twoWay && aabb(p, this.b)) warp(this.b, this.a);
+    if (aabb(p, this.a)) warp(p, this.a, this.b, false);
+    else if (this.twoWay && aabb(p, this.b)) warp(p, this.b, this.a, false);
+    else if (g.echo && g.echo.active) {
+      if (aabb(g.echo, this.a)) warp(g.echo, this.a, this.b, true);
+      else if (this.twoWay && aabb(g.echo, this.b)) warp(g.echo, this.b, this.a, true);
+    }
   }
   solids() { return []; }
   kills() { return []; }
@@ -923,7 +961,7 @@ class Button {
   reset() { this.pressed = false; this.dip = 0; }
   update(dt, g) {
     const hit = R(this.x, this.y - 8, this.w, this.h + 12);
-    const on = aabb(g.player, hit);
+    const on = aabb(g.player, hit) || !!(g.echo && g.echo.active && aabb(g.echo, hit));
     if (this.momentary) { this.pressed = on; }
     else if (on) { if (!this.pressed) AudioFX.beep(); this.pressed = true; }
     g.flags[this.key] = this.pressed;
@@ -978,12 +1016,14 @@ class EchoSwitch {
     this.h = opts.h ?? 12;
     this.key = key;
     this.momentary = opts.momentary ?? true;
+    this.holdDuration = opts.holdDuration ?? 3.5;
     this.reset();
   }
   reset() {
     this.pressed = false;
     this.dip = 0;
     this.t = 0;
+    this.holdTimer = 0;
   }
   update(dt, g) {
     this.t += dt;
@@ -992,11 +1032,21 @@ class EchoSwitch {
     const on = !!(g.echo && g.echo.active && aabb(g.echo, hit));
 
     if (this.momentary) {
-      if (on && !this.pressed) {
-        AudioFX.echoSwitch();
-        spawnEchoSpark(this.x + this.w / 2, this.y, 8);
+      if (on) {
+        if (!this.pressed && this.holdTimer <= 0) {
+          AudioFX.echoSwitch();
+          spawnEchoSpark(this.x + this.w / 2, this.y, 8);
+        }
+        this.holdTimer = this.holdDuration;
+        this.pressed = true;
+      } else if (this.holdTimer > 0) {
+        this.holdTimer -= dt;
+        if (this.holdTimer <= 0) {
+          this.pressed = false;
+        }
+      } else {
+        this.pressed = false;
       }
-      this.pressed = on;
     } else if (on && !this.pressed) {
       AudioFX.echoSwitch();
       spawnEchoSpark(this.x + this.w / 2, this.y, 14);
@@ -1186,7 +1236,9 @@ class FakeDoor {
   }
   reset() { this.sprung = false; this.out = 0; }
   update(dt, g) {
-    if (!this.sprung && aabb(g.player, R(this.x - 2, this.y, this.w + 4, this.h))) {
+    const hit = R(this.x - 2, this.y, this.w + 4, this.h);
+    const triggered = aabb(g.player, hit) || (g.echo && g.echo.active && aabb(g.echo, hit));
+    if (!this.sprung && triggered) {
       this.sprung = true;
       AudioFX.laugh();
     }
@@ -1236,9 +1288,12 @@ class Door {
     this.poofT = Math.max(0, this.poofT - dt);
     if (this.i < this.positions.length - 1) {
       const p = g.player;
-      const dx = (p.x + p.w / 2) - (this.pos.x + this.w / 2);
-      const dy = (p.y + p.h / 2) - (this.pos.y + this.h / 2);
-      if (Math.hypot(dx, dy) < this.fleeDist) {
+      const pDist = Math.hypot((p.x + p.w / 2) - (this.pos.x + this.w / 2), (p.y + p.h / 2) - (this.pos.y + this.h / 2));
+      let eDist = Infinity;
+      if (g.echo && g.echo.active) {
+        eDist = Math.hypot((g.echo.x + g.echo.w / 2) - (this.pos.x + this.w / 2), (g.echo.y + g.echo.h / 2) - (this.pos.y + this.h / 2));
+      }
+      if (Math.min(pDist, eDist) < this.fleeDist) {
         spawnPoof(this.pos.x + this.w / 2, this.pos.y + this.h / 2);
         this.i++;
         this.poofT = 0.25;
@@ -1493,7 +1548,7 @@ const LEVELS = [
         new EchoSwitch(260, 470, "e13", { momentary: true }),
         new Gate(R(500, 30, 24, 450), "e13"),
         new Saw([{ x: 620, y: 444 }, { x: 740, y: 444 }], { r: 22, speed: 160 }),
-        new Note(160, 430, "step on switch → run to gate → press [E]"),
+        new Note(160, 430, "press [E] to send your Echo ahead to open gates & scout traps"),
         new PopSpikes(820, 480, 64, R(740, 330, 16, 150), { delay: 0.04 }),
       ],
     }),
@@ -1588,7 +1643,7 @@ const LEVELS = [
         new Gate(R(600, 300, 28, 180), "g19"),
         new FakeDoor(710, 416, { label: "this way!" }),
         new PopSpikes(812, 480, 66, R(740, 330, 16, 150), { delay: 0.05 }),
-        new Note(200, 430, "echo holds the gate open"),
+        new Note(200, 430, "send your Echo forward to hold the gate and test the door"),
       ],
     }),
   },
@@ -1688,7 +1743,7 @@ const LEVELS = [
         new EchoSwitch(200, 470, "e25", { momentary: true }),
         new Gate(R(840, 140, 22, 120), "e25"),
         new Teleporter(700, 432, 800, 222, { w: 30, h: 48, twoWay: false }),
-        new Note(140, 430, "step switch, warp up, echo!"),
+        new Note(140, 430, "send Echo onto switch, then warp up!"),
         new PopSpikes(806, 260, 60, R(720, 180, 16, 80), { delay: 0.05 }),
       ],
     }),
@@ -1743,7 +1798,7 @@ const LEVELS = [
         new Gate(R(760, 300, 24, 180), "e28"),
         new CollapseFloor(R(620, 480, 150, 60), R(560, 300, 30, 180)),
         new FallBlock(R(820, 40, 70, 42), R(790, 200, 40, 280), { shakeTime: 0.05 }),
-        new Note(150, 430, "only your echo is honest"),
+        new Note(150, 430, "only your echo is honest — send it ahead to find real door"),
       ],
     }),
   },
@@ -1888,34 +1943,49 @@ const Game = {
 
   triggerEcho() {
     if (this.state !== "play" || !this.echoReady) return;
-    if (!this.player || this.replayBuffer.length < 2) return;
+    if (!this.player) return;
     this.echoReady = false;
-    this.echoStatus = "replaying";
+    this.echoStatus = "scouting";
     updateEchoHud();
 
-    const raw = this.replayBuffer.map(f => ({ ...f }));
-    const t0 = raw[0].t;
-    const frames = raw.map(f => ({ ...f, relT: f.t - t0 }));
-    const duration = frames[frames.length - 1].relT;
+    const p = this.player;
     this.echo = {
       active: true,
-      frames,
-      duration: Math.max(0.4, duration),
+      x: p.x,
+      y: p.y,
+      w: p.w,
+      h: p.h,
+      vx: p.face * 265,
+      vy: p.grounded ? 0 : p.vy,
+      face: p.face,
+      grounded: p.grounded,
+      jumping: false,
+      squash: 0,
+      duration: 3.8,
       curT: 0,
-      x: frames[0].x,
-      y: frames[0].y,
-      w: this.player.w,
-      h: this.player.h,
-      vx: frames[0].vx,
-      vy: frames[0].vy,
-      face: frames[0].face,
-      squash: frames[0].squash,
-      grounded: frames[0].grounded,
-      jumping: frames[0].jumping,
+      jumpCooldown: 0.1,
+      blockedT: 0,
       history: [],
     };
     AudioFX.echo();
-    spawnEchoPoof(this.echo.x + this.player.w / 2, this.echo.y + this.player.h / 2);
+    spawnEchoPoof(this.echo.x + p.w / 2, this.echo.y + p.h / 2);
+  },
+
+  destroyEcho(reason = "trap") {
+    if (!this.echo || !this.echo.active) return;
+    this.echo.active = false;
+    this.echoStatus = "used";
+    updateEchoHud();
+    const cx = this.echo.x + this.echo.w / 2;
+    const cy = this.echo.y + this.echo.h / 2;
+    spawnEchoPoof(cx, cy);
+    spawnEchoSpark(cx, cy, 14);
+    if (reason === "trap" || reason === "crushed") {
+      AudioFX.zap();
+      this.shake(5, 0.22);
+    } else {
+      AudioFX.poof();
+    }
   },
 
   die(x, y) {
@@ -1995,73 +2065,158 @@ const Game = {
     return out;
   },
 
+  updateEcho(dt, solids) {
+    const e = this.echo;
+    if (!e || !e.active) return;
+
+    e.curT += dt;
+    if (e.curT >= e.duration) {
+      this.destroyEcho("timeout");
+      return;
+    }
+
+    const SPEED = 265;
+    const accel = e.grounded ? 2600 : 1800;
+    const target = e.face * SPEED;
+    if (target > e.vx) e.vx = Math.min(target, e.vx + accel * dt);
+    else if (target < e.vx) e.vx = Math.max(target, e.vx - accel * dt);
+
+    e.vy = Math.min(e.vy + 2150 * dt, 980);
+
+    e.jumpCooldown = Math.max(0, e.jumpCooldown - dt);
+    if (e.grounded && e.jumpCooldown <= 0) {
+      // 1. Lookahead: Solid wall/step directly in front
+      const wallProbe = R(e.x + (e.face > 0 ? e.w : -12), e.y + 4, 12, e.h - 8);
+      let wallAhead = false;
+      for (const s of solids) {
+        if (aabb(wallProbe, s)) { wallAhead = true; break; }
+      }
+
+      // 2. Lookahead: Pit/gap ahead where floor ends
+      const floorProbe = R(e.x + (e.face > 0 ? e.w + 12 : -22), e.y + e.h + 2, 10, 24);
+      let floorAhead = false;
+      for (const s of solids) {
+        if (aabb(floorProbe, s)) { floorAhead = true; break; }
+      }
+
+      if (wallAhead || !floorAhead) {
+        e.vy = -645;
+        e.grounded = false;
+        e.jumping = true;
+        e.jumpCooldown = 0.42;
+        AudioFX.jump();
+        spawnDust(e.x + e.w / 2, e.y + e.h, 4);
+      }
+    }
+
+    // Pass 1: Horizontal collision
+    e.x += e.vx * dt;
+    let hitWall = false;
+    for (const s of solids) {
+      if (aabb(e, s)) {
+        if (e.vx > 0) e.x = s.x - e.w;
+        else if (e.vx < 0) e.x = s.x + s.w;
+        else e.x = e.x + e.w / 2 < s.x + s.w / 2 ? s.x - e.w : s.x + s.w;
+        e.vx = 0;
+        hitWall = true;
+      }
+    }
+    if (hitWall) {
+      e.blockedT += dt;
+      if (e.blockedT > 0.45 && e.grounded) {
+        e.face = -e.face;
+        e.blockedT = 0;
+      }
+    } else {
+      e.blockedT = 0;
+    }
+
+    // Pass 2: Vertical collision
+    const wasGrounded = e.grounded;
+    e.y += e.vy * dt;
+    e.grounded = false;
+    for (const s of solids) {
+      if (aabb(e, s)) {
+        if (e.vy > 0) {
+          e.y = s.y - e.h;
+          e.grounded = true;
+          e.jumping = false;
+          if (!wasGrounded && e.vy > 350) {
+            AudioFX.land();
+            spawnDust(e.x + e.w / 2, e.y + e.h, 5);
+            e.squash = 0.12;
+          }
+          e.vy = 0;
+        } else if (e.vy < 0) {
+          e.y = s.y + s.h;
+          e.vy = 0;
+        }
+      }
+    }
+    e.squash = Math.max(0, e.squash - dt);
+
+    if (e.y > H + 40) {
+      this.destroyEcho("pit");
+      return;
+    }
+
+    e.history.push({
+      x: e.x,
+      y: e.y,
+      face: e.face,
+      squash: e.squash,
+      grounded: e.grounded,
+      vy: e.vy,
+    });
+    if (e.history.length > 8) e.history.shift();
+
+    if (Math.random() < 0.35) {
+      spawnEchoTrail(e.x + e.w / 2, e.y + e.h / 2);
+    }
+  },
+
   updatePlay(dt) {
     const p = this.player;
     this.invertControls = false;
 
-    // Update Echo if active
-    if (this.echo && this.echo.active) {
-      this.echo.curT += dt;
-      if (this.echo.curT >= this.echo.duration) {
-        this.echo.active = false;
-        this.echoStatus = "used";
-        updateEchoHud();
-        spawnEchoPoof(this.echo.x + this.echo.w / 2, this.echo.y + this.echo.h / 2);
-      } else {
-        const frames = this.echo.frames;
-        const curT = this.echo.curT;
-        let i = 0;
-        while (i < frames.length - 1 && frames[i + 1].relT <= curT) i++;
-        const f0 = frames[i];
-        const f1 = frames[Math.min(i + 1, frames.length - 1)];
-        const span = Math.max(0.0001, f1.relT - f0.relT);
-        const alpha = clamp((curT - f0.relT) / span, 0, 1);
+    const solids = this.collectSolids();
 
-        this.echo.x = lerp(f0.x, f1.x, alpha);
-        this.echo.y = lerp(f0.y, f1.y, alpha);
-        this.echo.vx = lerp(f0.vx, f1.vx, alpha);
-        this.echo.vy = lerp(f0.vy, f1.vy, alpha);
-        this.echo.face = f1.face;
-        this.echo.squash = lerp(f0.squash, f1.squash, alpha);
-        this.echo.grounded = f1.grounded;
-        this.echo.jumping = f1.jumping;
+    // 1. Update Echo scout physics and autonomous motion
+    this.updateEcho(dt, solids);
 
-        this.echo.history.push({
-          x: this.echo.x,
-          y: this.echo.y,
-          face: this.echo.face,
-          squash: this.echo.squash,
-          grounded: this.echo.grounded,
-          vy: this.echo.vy,
-        });
-        if (this.echo.history.length > 8) this.echo.history.shift();
+    // 2. Update traps & door
+    for (const t of this.level.traps) t.update(dt, this);
+    this.level.door.update(dt, this);
 
-        if (Math.random() < 0.35) {
-          spawnEchoTrail(this.echo.x + this.echo.w / 2, this.echo.y + this.echo.h / 2);
+    // 3. Check lethal trap kills for both Player and Echo
+    for (const t of this.level.traps) {
+      for (const k of t.kills()) {
+        if (aabb(p, k)) {
+          this.die(p.x + p.w / 2, p.y + p.h / 2);
+          return;
+        }
+        if (this.echo && this.echo.active && aabb(this.echo, k)) {
+          if (t instanceof Turret && t.shots) {
+            t.shots = t.shots.filter(s => !aabb(this.echo, R(s.x - t.r, s.y - t.r, t.r * 2, t.r * 2)));
+          }
+          this.destroyEcho("trap");
+          break;
         }
       }
     }
 
-    for (const t of this.level.traps) t.update(dt, this);
-    this.level.door.update(dt, this);
-
-    // Record player state into buffer
-    this.replayBuffer.push({
-      t: this.time,
-      x: p.x,
-      y: p.y,
-      vx: p.vx,
-      vy: p.vy,
-      face: p.face,
-      squash: p.squash,
-      grounded: p.grounded,
-      jumping: p.jumping,
-    });
-    const cutoff = this.time - 3.2;
-    while (this.replayBuffer.length > 2 && this.replayBuffer[0].t < cutoff) {
-      this.replayBuffer.shift();
+    // 4. Check moving solids crushing for both Player and Echo
+    for (const s of solids) {
+      if (aabb(R(p.x + 4, p.y + 4, p.w - 8, p.h - 8), s)) {
+        this.die(p.x + p.w / 2, p.y + p.h / 2);
+        return;
+      }
+      if (this.echo && this.echo.active && aabb(R(this.echo.x + 4, this.echo.y + 4, this.echo.w - 8, this.echo.h - 8), s)) {
+        this.destroyEcho("crushed");
+      }
     }
 
+    // 5. Player movement input & physics
     let dir = 0;
     if (heldLeft()) dir -= 1;
     if (heldRight()) dir += 1;
@@ -2090,7 +2245,6 @@ const Game = {
 
     p.vy = Math.min(p.vy + 2150 * dt, 980);
 
-    const solids = this.collectSolids();
     const wasGrounded = p.grounded;
 
     p.x += p.vx * dt;
@@ -2119,19 +2273,6 @@ const Game = {
       }
     }
     p.squash = Math.max(0, p.squash - dt);
-
-    for (const s of solids) {
-      if (aabb(R(p.x + 4, p.y + 4, p.w - 8, p.h - 8), s)) {
-        this.die(p.x + p.w / 2, p.y + p.h / 2);
-        return;
-      }
-    }
-
-    for (const t of this.level.traps) {
-      for (const k of t.kills()) {
-        if (aabb(p, k)) { this.die(p.x + p.w / 2, p.y + p.h / 2); return; }
-      }
-    }
 
     if (p.y > H + 40) {
       this.deaths++;
@@ -2410,21 +2551,23 @@ function updateDeathHud() {
 function updateEchoHud() {
   const el = document.getElementById("hud-echo");
   const tc = document.getElementById("tc-echo");
-  const status = Game.echoStatus || (Game.echoReady ? "ready" : "used");
+  const rawStatus = Game.echoStatus || (Game.echoReady ? "ready" : "used");
+  const isScouting = rawStatus === "scouting" || rawStatus === "replaying";
+  const cssClass = isScouting ? "replaying" : rawStatus;
 
   if (el) {
-    el.className = "echo-pill " + status;
-    if (status === "ready") {
+    el.className = "echo-pill " + cssClass;
+    if (rawStatus === "ready") {
       el.innerHTML = "ECHO &bull; READY";
-    } else if (status === "replaying") {
-      el.innerHTML = "ECHO &bull; REPLAYING";
+    } else if (isScouting) {
+      el.innerHTML = "ECHO &bull; SCOUTING";
     } else {
       el.innerHTML = "ECHO &bull; USED";
     }
   }
 
   if (tc) {
-    tc.className = "tc-btn tc-echo " + status;
+    tc.className = "tc-btn tc-echo " + cssClass;
   }
 }
 
